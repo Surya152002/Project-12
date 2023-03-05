@@ -4,80 +4,94 @@
 	<title>Number Plate Detection</title>
 	<style>
 		body {
+			margin: 0;
+			padding: 0;
+			background-color: #f5f5f5;
 			font-family: Arial, sans-serif;
-			background-color: #f4f4f4;
 		}
-
-		h1 {
-			text-align: center;
-			margin-top: 50px;
-		}
-
 		#video {
-			display: block;
-			margin: auto;
-			margin-top: 30px;
-			border: 5px solid #333;
+			width: 100%;
+			height: auto;
+			background-color: #000;
 		}
-
 		#canvas {
 			display: none;
+		}
+		#result {
+			padding: 10px;
+			background-color: #fff;
+			border: 1px solid #ccc;
+			margin-top: 10px;
+			text-align: center;
+			font-size: 20px;
 		}
 	</style>
 </head>
 <body>
-	<h1>Number Plate Detection</h1>
-	<video id="video" width="640" height="480"></video>
-	<canvas id="canvas" width="640" height="480"></canvas>
-
-	<!-- Load the required libraries -->
-	<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
-	<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
-	<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection"></script>
-
+	<video id="video" autoplay></video>
+	<canvas id="canvas"></canvas>
+	<div id="result"></div>
 	<script>
-		const video = document.getElementById('video');
-		const canvas = document.getElementById('canvas');
-		const context = canvas.getContext('2d');
-
-		// Replace with your Telegram bot token and chat ID
-		const TELEGRAM_BOT_TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN_HERE';
-		const TELEGRAM_CHAT_ID = 'YOUR_TELEGRAM_CHAT_ID_HERE';
-
-		// Load the number plate recognition model
-		tf.loadGraphModel('numberplate_recognition_model/model.json').then(model => {
-			// Start the video stream from the internal camera
-			navigator.mediaDevices.getUserMedia({
-				video: {
-					facingMode: "user"
-				}
-			}).then(stream => {
+		navigator.mediaDevices.getUserMedia({ video: true })
+			.then(function(stream) {
+				var video = document.getElementById("video");
 				video.srcObject = stream;
-				video.play();
-
-				// Set up a timer to run the face detection and number plate recognition every second
-				setInterval(() => {
-					// Capture a frame from the video stream and display it on the canvas
-					context.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-					// Convert the canvas image to a tensor and preprocess it
-					const imageTensor = tf.browser.fromPixels(canvas).expandDims().toFloat().div(tf.scalar(255));
-					const preprocessedTensor = tf.image.resizeBilinear(imageTensor, [224, 224]);
-
-					// Get the predictions from the number plate recognition model
-					const predictions = model.predict(preprocessedTensor);
-
-					// Decode the predictions to get the number plate text
-					const prediction = Array.from(predictions.dataSync()).map(x => String.fromCharCode(x)).join('');
-
-					// Send the number plate text to the Telegram bot
-					fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${prediction}`);
-				}, 1000);
-			}).catch(error => {
-				console.error(error);
-				alert("Unable to access the camera.");
+				video.onloadedmetadata = function(e) {
+					video.play();
+				};
+			})
+			.catch(function(err) {
+				console.log("Error accessing camera: " + err.message);
 			});
-		});
+
+		var canvas = document.getElementById("canvas");
+		var ctx = canvas.getContext("2d");
+
+		setInterval(function() {
+			ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+			var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+			var data = imageData.data;
+
+			var sum = 0;
+			for (var i = 0; i < data.length; i += 4) {
+				var r = data[i];
+				var g = data[i + 1];
+				var b = data[i + 2];
+				var brightness = (3*r + 4*g + b) >>> 3; // weighted brightness
+				sum += brightness;
+			}
+			var brightnessThreshold = sum / (data.length / 4); // average brightness
+
+			ctx.strokeStyle = "red";
+			ctx.lineWidth = 4;
+			ctx.beginPath();
+			var found = false;
+			for (var y = 0; y < canvas.height; y++) {
+				for (var x = 0; x < canvas.width; x++) {
+					var pixelIndex = (y * canvas.width + x) * 4;
+					var r = data[pixelIndex];
+					var g = data[pixelIndex + 1];
+					var b = data[pixelIndex + 2];
+					var brightness = (3*r + 4*g + b) >>> 3; // weighted brightness
+					if (brightness > brightnessThreshold) {
+						ctx.rect(x, y, 1, 1);
+						found = true;
+						break;
+					}
+				}
+				if (found) break;
+			}
+			ctx.stroke();
+
+			if (found) {
+				var numberPlate = "Unknown";
+				var telegramBotURL = "https://api.telegram.org/bot<BOT_TOKEN>/sendMessage?chat_id=<CHAT_ID>&text=" + numberPlate;
+				var xhr = new XMLHttpRequest();
+				xhr.open("GET", telegramBotURL, true);
+				xhr.send();
+			}
+		}, 100);
 	</script>
 </body>
 </html>
