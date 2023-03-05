@@ -1,97 +1,116 @@
 <!DOCTYPE html>
 <html>
 <head>
+	<meta charset="utf-8">
 	<title>Number Plate Detection</title>
 	<style>
-		body {
-			margin: 0;
-			padding: 0;
-			background-color: #f5f5f5;
-			font-family: Arial, sans-serif;
-		}
-		#video {
+		video {
 			width: 100%;
 			height: auto;
-			background-color: #000;
 		}
-		#canvas {
+		canvas {
 			display: none;
-		}
-		#result {
-			padding: 10px;
-			background-color: #fff;
-			border: 1px solid #ccc;
-			margin-top: 10px;
-			text-align: center;
-			font-size: 20px;
 		}
 	</style>
 </head>
 <body>
+	<h1>Number Plate Detection</h1>
 	<video id="video" autoplay></video>
 	<canvas id="canvas"></canvas>
-	<div id="result"></div>
+	<h2 id="number-plate"></h2>
 	<script>
-		navigator.mediaDevices.getUserMedia({ video: true })
-			.then(function(stream) {
-				var video = document.getElementById("video");
-				video.srcObject = stream;
-				video.onloadedmetadata = function(e) {
-					video.play();
-				};
-			})
-			.catch(function(err) {
-				console.log("Error accessing camera: " + err.message);
-			});
+		const video = document.getElementById('video');
+		const canvas = document.getElementById('canvas');
+		const numberPlate = document.getElementById('number-plate');
+		const constraints = { audio: false, video: { facingMode: { exact: 'environment' } } };
 
-		var canvas = document.getElementById("canvas");
-		var ctx = canvas.getContext("2d");
+		// Get access to the camera
+		navigator.mediaDevices.getUserMedia(constraints)
+		.then((stream) => {
+			video.srcObject = stream;
+			video.play();
+		})
+		.catch((err) => {
+			console.log("An error occurred: " + err);
+		});
 
-		setInterval(function() {
+		// Process frames from the camera
+		setInterval(() => {
+			// Draw the current video frame on the canvas
+			const ctx = canvas.getContext('2d');
 			ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-			var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-			var data = imageData.data;
+			// Get the pixel data from the canvas
+			const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+			const data = imageData.data;
 
-			var sum = 0;
-			for (var i = 0; i < data.length; i += 4) {
-				var r = data[i];
-				var g = data[i + 1];
-				var b = data[i + 2];
-				var brightness = (3*r + 4*g + b) >>> 3; // weighted brightness
-				sum += brightness;
-			}
-			var brightnessThreshold = sum / (data.length / 4); // average brightness
+			// Process the pixel data for number plate detection
+			const brightnessThreshold = 150;
+			const minRectSize = 20;
+			const maxRectSize = 400;
+			const rectColor = 'green';
+			let numberPlateText = '';
 
-			ctx.strokeStyle = "red";
-			ctx.lineWidth = 4;
-			ctx.beginPath();
-			var found = false;
-			for (var y = 0; y < canvas.height; y++) {
-				for (var x = 0; x < canvas.width; x++) {
-					var pixelIndex = (y * canvas.width + x) * 4;
-					var r = data[pixelIndex];
-					var g = data[pixelIndex + 1];
-					var b = data[pixelIndex + 2];
-					var brightness = (3*r + 4*g + b) >>> 3; // weighted brightness
-					if (brightness > brightnessThreshold) {
-						ctx.rect(x, y, 1, 1);
-						found = true;
-						break;
+			for (let i = 0; i < data.length; i += 4) {
+				const r = data[i];
+				const g = data[i + 1];
+				const b = data[i + 2];
+				const brightness = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
+
+				if (brightness > brightnessThreshold) {
+					// Found a bright pixel, check if it's part of a rectangle
+					const x = (i / 4) % canvas.width;
+					const y = Math.floor((i / 4) / canvas.width);
+
+					// Check if there's a rectangle at this position
+					let rectSize = 0;
+					for (let j = minRectSize; j <= maxRectSize; j++) {
+						if (x + j >= canvas.width || y + j >= canvas.height) {
+							break;
+						}
+
+						let isRect = true;
+						for (let k = 0; k < j; k++) {
+							if (data[((y + k) * canvas.width + x) * 4] < brightnessThreshold ||
+								data[((y + k) * canvas.width + x + j) * 4] < brightnessThreshold ||
+								data[(y * canvas.width + x + k) * 4] < brightnessThreshold ||
+								data[((y + j) * canvas.width + x + k) * 4] < brightnessThreshold) {
+								isRect = false;
+								break;
+							}
+						}
+
+						if (isRect) {
+							rectSize = j;
+						}
 					}
-				}
-				if (found) break;
-			}
-			ctx.stroke();
 
-			if (found) {
-				var numberPlate = "Unknown";
-				var telegramBotURL = "https://api.telegram.org/bot<BOT_TOKEN>/sendMessage?chat_id=<CHAT_ID>&text=" + numberPlate;
-				var xhr = new XMLHttpRequest();
-				xhr.open("GET", telegramBotURL, true);
-				xhr.send();
+					// Draw a rectangle around the detected number plate
+					if (rectSize >= minRectSize) {
+					
+					ctx.beginPath();
+					ctx.lineWidth = "2";
+					ctx.strokeStyle = rectColor;
+					ctx.rect(x, y, rectSize, rectSize);
+					ctx.stroke();
+
+					// Extract the number plate text from the rectangle
+					const plateImageData = ctx.getImageData(x, y, rectSize, rectSize);
+					const plateCanvas = document.createElement('canvas');
+					plateCanvas.width = plateImageData.width;
+					plateCanvas.height = plateImageData.height;
+					const plateCtx = plateCanvas.getContext('2d');
+					plateCtx.putImageData(plateImageData, 0, 0);
+					const plateText = OCRAD(plateCanvas).trim();
+					numberPlateText = plateText;
+					break;
+				}
 			}
-		}, 100);
-	</script>
+		}
+
+		// Display the number plate text in the HTML
+		numberPlate.innerText = numberPlateText;
+	}, 100);
+</script>
 </body>
 </html>
