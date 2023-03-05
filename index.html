@@ -46,10 +46,10 @@
 
 		// Load the number plate recognition model
 		tf.loadGraphModel('numberplate_recognition_model/model.json').then(model => {
-			// Start the video stream from the external camera
+			// Start the video stream from the internal camera
 			navigator.mediaDevices.getUserMedia({
 				video: {
-					facingMode: "environment"
+					facingMode: "user"
 				}
 			}).then(stream => {
 				video.srcObject = stream;
